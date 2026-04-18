@@ -1,0 +1,12 @@
+# Build artifacts
+build/
+dist/
+
+# Egg metadata
+*.egg-info/
+.eggs/
+*.egg
+
+# Cache
+__pycache__/
+*.pyc
