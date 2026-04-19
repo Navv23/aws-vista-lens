@@ -10,3 +10,7 @@ dist/
 # Cache
 __pycache__/
 *.pyc
+
+.env
+
+lambda.zip

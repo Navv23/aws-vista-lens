@@ -1,10 +1,11 @@
 import boto3
 import zipfile
 import textwrap
+from aws_vista_lens import settings
 
 
 class LambdaManager:
-    def __init__(self, function_name, role_arn, bucket_name, region="ap-south-1"):
+    def __init__(self, function_name, role_arn, bucket_name, region=settings.AWS_REGION):
         self.function_name = function_name
         self.role_arn = role_arn
         self.bucket_name = bucket_name
@@ -12,9 +13,10 @@ class LambdaManager:
         self.lambda_client = boto3.client("lambda", region_name=region)
 
     def _build_zip(self, zip_path="lambda.zip"):
-        code = textwrap.dedent("""
+        code = textwrap.dedent(f"""
             import json
             import boto3
+            import uuid
 
             s3 = boto3.client("s3")
 
@@ -27,23 +29,36 @@ class LambdaManager:
                     bucket = record['s3']['bucket']['name']
                     key = record['s3']['object']['key']
 
-                    print(f"Received file: s3://{bucket}/{key}")
+                    print(f"Received file: s3://{{bucket}}/{{key}}")
 
                     # Validate file type
                     if not key.endswith(".csv"):
                         print("Rejected: Not a CSV file")
-                        return {"statusCode": 400}
+                        return {{"statusCode": 400}}
 
                     # Validate file size
                     meta = s3.head_object(Bucket=bucket, Key=key)
 
                     if meta['ContentLength'] == 0:
                         print("Rejected: Empty file")
-                        return {"statusCode": 400}
+                        return {{"statusCode": 400}}
 
                     print("Validation passed")
 
-                    return {"statusCode": 200}
+                    glue = boto3.client("glue")
+
+                    run_id = str(uuid.uuid4())
+                    glue.start_job_run(
+                        JobName="{settings.GLUE_JOB_NAME}",
+                        Arguments={{
+                            "--s3_path": f"s3://{{bucket}}/{{key}}",
+                            "--run_id": run_id
+                        }}
+                    )
+
+                    print("Glue job triggered")
+
+                    return {{"statusCode": 200}}
 
                 except Exception as e:
                     print("Error:", str(e))
@@ -74,7 +89,6 @@ class LambdaManager:
         zipped_code = self._build_zip()
 
         response = self.lambda_client.update_function_code(FunctionName=self.function_name, ZipFile=zipped_code)
-
         print("Lambda updated")
         return response
 
@@ -96,10 +110,10 @@ class LambdaManager:
         return response
     
 
-if __name__ == "__main__":
-    manager = LambdaManager(function_name="s3-trigger-fn",
-                            role_arn="arn:aws:iam::562125663402:role/lambda-execution-role",
-                            bucket_name="aws-vista-lens")
+if __name__ == "__main__":  
+    manager = LambdaManager(function_name=settings.LAMBDA_FUNCTION_NAME,
+                            role_arn=settings.LAMBDA_ROLE_ARN,
+                            bucket_name=settings.S3_BUCKET_NAME)
 
     # # Create Lambda
     # manager.create_function()
